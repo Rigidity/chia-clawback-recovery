@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import https from "node:https";
@@ -40,9 +40,6 @@ interface RecoveryOptions {
   verifyRpcCertificate: boolean;
   derivationPageSize: number;
   receiverPublicKey?: string;
-  buildOnly: boolean;
-  submit: boolean;
-  output: string;
 }
 
 interface SageRpcOptions {
@@ -74,23 +71,10 @@ interface SignedCoinSpendsResponse {
   spend_bundle: unknown;
 }
 
-interface RecoveryResult {
-  clawbackAddress: string;
-  receiverAddress: string;
-  receiverDerivation: {
-    hardened: boolean;
-    index: number;
-    address: string;
-  } | null;
-  destination: string;
-  coinIds: string[];
-  inputAmountMojos: string;
-  feeMojos: string;
-  outputAmountMojos: string;
-  coinSpends: ReturnType<typeof coinSpendJson>[];
-  preview: unknown;
-  spendBundle: unknown;
-  submitted: boolean;
+interface ReceiverDerivation {
+  hardened: boolean;
+  index: number;
+  address: string;
 }
 
 function parseNonNegativeBigInt(value: string): bigint {
@@ -125,7 +109,7 @@ function normalizeCoinId(value: string): string {
 const program = new Command()
   .name("recover-nested-clawback")
   .description(
-    "Build receiver-path spends for unspent XCH at a Clawback V2 address, then sign and optionally submit them through Sage RPC.",
+    "Recover unspent XCH from a Clawback V2 address and submit the transaction through Sage RPC.",
   )
   .requiredOption(
     "-a, --clawback-address <address>",
@@ -174,21 +158,6 @@ const program = new Command()
   .option(
     "--receiver-public-key <hex>",
     "Synthetic receiver public key; bypasses Sage derivation lookup",
-  )
-  .option(
-    "--build-only",
-    "Build the unsigned spends without contacting Sage RPC",
-    false,
-  )
-  .option(
-    "--submit",
-    "Submit the signed bundle through Sage RPC (otherwise only sign it)",
-    false,
-  )
-  .option(
-    "-o, --output <path>",
-    "Write the unsigned and signed transaction data to this JSON file",
-    "recovery-transaction.json",
   )
   .parse();
 
@@ -575,18 +544,13 @@ try {
   const rpc = new SageRpc(options);
 
   let receiverPublicKey: PublicKeyType;
-  let derivation: RecoveryResult["receiverDerivation"] = null;
+  let derivation: ReceiverDerivation | null = null;
   if (options.receiverPublicKey) {
     receiverPublicKey = parseReceiverPublicKey(
       options.receiverPublicKey,
       clawback.receiverPuzzleHash,
     );
   } else {
-    if (options.buildOnly) {
-      throw new Error(
-        "--build-only requires --receiver-public-key because Sage RPC is disabled",
-      );
-    }
     const receiver = await findReceiverPublicKey(
       rpc,
       receiverAddress,
@@ -603,61 +567,28 @@ try {
     destination,
     options.fee,
   );
-  const result: RecoveryResult = {
-    clawbackAddress: clawbackAddress.encode(),
-    receiverAddress,
-    receiverDerivation: derivation,
-    destination: destination.encode(),
-    coinIds: records.map((record) => `0x${toHex(record.coin.coinId())}`),
-    inputAmountMojos: unsigned.inputAmount.toString(),
-    feeMojos: options.fee.toString(),
-    outputAmountMojos: unsigned.outputAmount.toString(),
-    coinSpends: unsigned.coinSpends,
-    preview: null,
-    spendBundle: null,
-    submitted: false,
-  };
-
-  if (!options.buildOnly) {
-    result.preview = await rpc.call("view_coin_spends", {
-      coin_spends: unsigned.coinSpends,
-    });
-    const signed = await rpc.call<SignedCoinSpendsResponse>(
-      "sign_coin_spends",
-      {
-        coin_spends: unsigned.coinSpends,
-        auto_submit: false,
-        partial: false,
-      },
-    );
-    result.spendBundle = signed.spend_bundle;
-
-    if (options.submit) {
-      await rpc.call("submit_transaction", {
-        spend_bundle: signed.spend_bundle,
-      });
-      result.submitted = true;
-    }
-  }
-
-  const outputPath = resolve(options.output);
-  await writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
+  const preview = await rpc.call("view_coin_spends", {
+    coin_spends: unsigned.coinSpends,
   });
+  await rpc.call<SignedCoinSpendsResponse>("sign_coin_spends", {
+    coin_spends: unsigned.coinSpends,
+    auto_submit: true,
+    partial: false,
+  });
+
   console.log(
     JSON.stringify(
       {
-        output: outputPath,
-        clawbackAddress: result.clawbackAddress,
-        receiverAddress: result.receiverAddress,
-        destination: result.destination,
-        coins: result.coinIds,
-        inputAmountMojos: result.inputAmountMojos,
-        feeMojos: result.feeMojos,
-        outputAmountMojos: result.outputAmountMojos,
-        signed: result.spendBundle !== null,
-        submitted: result.submitted,
+        clawbackAddress: clawbackAddress.encode(),
+        receiverAddress,
+        receiverDerivation: derivation,
+        destination: destination.encode(),
+        coins: records.map((record) => `0x${toHex(record.coin.coinId())}`),
+        inputAmountMojos: unsigned.inputAmount.toString(),
+        feeMojos: options.fee.toString(),
+        outputAmountMojos: unsigned.outputAmount.toString(),
+        preview,
+        submitted: true,
       },
       null,
       2,
