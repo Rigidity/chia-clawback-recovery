@@ -7,12 +7,25 @@
   "engines": {
     "node": ">=22.12.0"
   },
+  "type": "module",
   "scripts": {
-    "inspect": "node inspect-clawback-v2.mjs",
-    "recover": "node recover-nested-clawback.mjs"
+    "inspect": "tsx inspect-clawback-v2.ts",
+    "lint": "eslint .",
+    "prettier:check": "prettier --check .",
+    "recover": "tsx recover-nested-clawback.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "chia-wallet-sdk": "^0.36.0",
     "commander": "^15.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.5.1",
+    "eslint": "^10.10.0",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.13",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.70.0"
   }
 }

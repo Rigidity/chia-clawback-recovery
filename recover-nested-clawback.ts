@@ -8,13 +8,18 @@ import {
   Address,
   ClawbackV2,
   Clvm,
-  Coin,
   PublicKey,
   RpcClient,
   bytesEqual,
   fromHex,
   standardPuzzleHash,
   toHex,
+} from "chia-wallet-sdk";
+import type {
+  CoinRecord,
+  CoinSpend,
+  PublicKey as PublicKeyType,
+  RpcClient as RpcClientType,
 } from "chia-wallet-sdk";
 
 const DEFAULT_RPC_DIRECTORY = resolve(
@@ -23,8 +28,73 @@ const DEFAULT_RPC_DIRECTORY = resolve(
 );
 const MAX_BLOCK_COST = 11_000_000_000n;
 
-function parseNonNegativeBigInt(value) {
-  let parsed;
+interface RecoveryOptions {
+  clawbackAddress: string;
+  destination?: string;
+  fee: bigint;
+  coinId?: string[];
+  rpcUrl: string;
+  rpcCert: string;
+  rpcKey: string;
+  rpcCa?: string;
+  verifyRpcCertificate: boolean;
+  derivationPageSize: number;
+  receiverPublicKey?: string;
+  buildOnly: boolean;
+  submit: boolean;
+  output: string;
+}
+
+interface SageRpcOptions {
+  rpcUrl: string;
+  rpcCert: string;
+  rpcKey: string;
+  rpcCa?: string;
+  verifyRpcCertificate: boolean;
+}
+
+interface SageTls {
+  cert: Buffer;
+  key: Buffer;
+  ca: Buffer | null;
+}
+
+interface SageDerivation {
+  address: string;
+  public_key: string;
+  index: number;
+}
+
+interface GetDerivationsResponse {
+  derivations: SageDerivation[];
+  total: number;
+}
+
+interface SignedCoinSpendsResponse {
+  spend_bundle: unknown;
+}
+
+interface RecoveryResult {
+  clawbackAddress: string;
+  receiverAddress: string;
+  receiverDerivation: {
+    hardened: boolean;
+    index: number;
+    address: string;
+  } | null;
+  destination: string;
+  coinIds: string[];
+  inputAmountMojos: string;
+  feeMojos: string;
+  outputAmountMojos: string;
+  coinSpends: ReturnType<typeof coinSpendJson>[];
+  preview: unknown;
+  spendBundle: unknown;
+  submitted: boolean;
+}
+
+function parseNonNegativeBigInt(value: string): bigint {
+  let parsed: bigint;
   try {
     parsed = BigInt(value);
   } catch {
@@ -36,7 +106,7 @@ function parseNonNegativeBigInt(value) {
   return parsed;
 }
 
-function parsePositiveInteger(value) {
+function parsePositiveInteger(value: string): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new InvalidArgumentError("must be a positive integer");
@@ -44,7 +114,7 @@ function parsePositiveInteger(value) {
   return parsed;
 }
 
-function normalizeCoinId(value) {
+function normalizeCoinId(value: string): string {
   const hex = value.replace(/^0x/i, "").toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(hex)) {
     throw new InvalidArgumentError(`invalid coin ID: ${value}`);
@@ -73,7 +143,10 @@ const program = new Command()
   .option(
     "--coin-id <coinIds...>",
     "Only recover specific coin IDs at the clawback address",
-    (value, previous = []) => [...previous, normalizeCoinId(value)],
+    (value: string, previous: string[] = []) => [
+      ...previous,
+      normalizeCoinId(value),
+    ],
   )
   .option("--rpc-url <url>", "Sage RPC base URL", "https://127.0.0.1:9257")
   .option(
@@ -119,11 +192,11 @@ const program = new Command()
   )
   .parse();
 
-const options = program.opts();
+const options = program.opts<RecoveryOptions>();
 options.fee ??= 0n;
 
-function decodeMainnetAddress(value, label) {
-  let address;
+function decodeMainnetAddress(value: string, label: string): Address {
+  let address: Address;
   try {
     address = Address.decode(value);
   } catch {
@@ -135,14 +208,7 @@ function decodeMainnetAddress(value, label) {
   return address;
 }
 
-function requireResponse(response, label, property) {
-  if (!response.success || !response[property]) {
-    throw new Error(`${label} failed: ${response.error ?? "no result returned"}`);
-  }
-  return response[property];
-}
-
-function coinSpendJson(coinSpend) {
+function coinSpendJson(coinSpend: CoinSpend) {
   return {
     coin: {
       parent_coin_info: toHex(coinSpend.coin.parentCoinInfo),
@@ -154,7 +220,11 @@ function coinSpendJson(coinSpend) {
   };
 }
 
-async function parseClawbackFromRecord(client, record, expectedPuzzleHash) {
+async function parseClawbackFromRecord(
+  client: RpcClientType,
+  record: CoinRecord,
+  expectedPuzzleHash: Uint8Array,
+): Promise<ClawbackV2 | null> {
   const response = await client.getPuzzleAndSolution(
     record.coin.parentCoinInfo,
     record.confirmedBlockIndex,
@@ -196,7 +266,7 @@ async function parseClawbackFromRecord(client, record, expectedPuzzleHash) {
   for (const hinted of [false, true]) {
     try {
       const clawback = ClawbackV2.fromMemo(
-        memos[1],
+        memos[1]!,
         receiverPuzzleHash,
         createCoin.amount,
         hinted,
@@ -213,7 +283,11 @@ async function parseClawbackFromRecord(client, record, expectedPuzzleHash) {
   return null;
 }
 
-async function discoverClawback(client, puzzleHash, records) {
+async function discoverClawback(
+  client: RpcClientType,
+  puzzleHash: Uint8Array,
+  records: CoinRecord[],
+): Promise<ClawbackV2> {
   for (const record of records) {
     const clawback = await parseClawbackFromRecord(client, record, puzzleHash);
     if (clawback) {
@@ -225,7 +299,11 @@ async function discoverClawback(client, puzzleHash, records) {
   );
 }
 
-async function discoverCoins(client, clawbackAddress, requestedCoinIds) {
+async function discoverCoins(
+  client: RpcClientType,
+  clawbackAddress: Address,
+  requestedCoinIds?: string[],
+): Promise<{ clawback: ClawbackV2; records: CoinRecord[] }> {
   const response = await client.getCoinRecordsByPuzzleHash(
     clawbackAddress.puzzleHash,
     null,
@@ -244,9 +322,7 @@ async function discoverCoins(client, clawbackAddress, requestedCoinIds) {
     clawbackAddress.puzzleHash,
     records,
   );
-  const requested = requestedCoinIds
-    ? new Set(requestedCoinIds)
-    : null;
+  const requested = requestedCoinIds ? new Set(requestedCoinIds) : null;
   const unspent = records.filter(
     (record) =>
       !record.spent &&
@@ -259,7 +335,9 @@ async function discoverCoins(client, clawbackAddress, requestedCoinIds) {
   if (requested && unspent.length !== requested.size) {
     const found = new Set(unspent.map((record) => toHex(record.coin.coinId())));
     const missing = [...requested].filter((coinId) => !found.has(coinId));
-    throw new Error(`Requested coins are missing or spent: ${missing.join(", ")}`);
+    throw new Error(
+      `Requested coins are missing or spent: ${missing.join(", ")}`,
+    );
   }
   if (BigInt(Math.floor(Date.now() / 1_000)) < clawback.seconds) {
     throw new Error(
@@ -271,7 +349,14 @@ async function discoverCoins(client, clawbackAddress, requestedCoinIds) {
 }
 
 class SageRpc {
-  constructor(rpcOptions) {
+  private readonly baseUrl: URL;
+  private readonly certPath: string;
+  private readonly keyPath: string;
+  private readonly caPath: string | null;
+  private readonly rejectUnauthorized: boolean;
+  private tls: SageTls | null = null;
+
+  constructor(rpcOptions: SageRpcOptions) {
     this.baseUrl = new URL(rpcOptions.rpcUrl);
     this.certPath = resolve(rpcOptions.rpcCert);
     this.keyPath = resolve(rpcOptions.rpcKey);
@@ -280,7 +365,7 @@ class SageRpc {
     this.tls = null;
   }
 
-  async loadTls() {
+  async loadTls(): Promise<SageTls> {
     if (!this.tls) {
       const [cert, key, ca] = await Promise.all([
         readFile(this.certPath),
@@ -292,12 +377,15 @@ class SageRpc {
     return this.tls;
   }
 
-  async call(endpoint, body) {
+  async call<T = unknown>(
+    endpoint: string,
+    body: Record<string, unknown>,
+  ): Promise<T> {
     const tls = await this.loadTls();
     const payload = JSON.stringify(body);
     const url = new URL(endpoint.replace(/^\//, ""), `${this.baseUrl}/`);
 
-    return new Promise((resolvePromise, rejectPromise) => {
+    return new Promise<T>((resolvePromise, rejectPromise) => {
       const request = https.request(
         url,
         {
@@ -331,10 +419,12 @@ class SageRpc {
               return;
             }
             try {
-              resolvePromise(text ? JSON.parse(text) : {});
+              resolvePromise((text ? JSON.parse(text) : {}) as T);
             } catch (error) {
               rejectPromise(
-                new Error(`Sage RPC ${endpoint} returned invalid JSON: ${error}`),
+                new Error(
+                  `Sage RPC ${endpoint} returned invalid JSON: ${error}`,
+                ),
               );
             }
           });
@@ -346,15 +436,25 @@ class SageRpc {
   }
 }
 
-async function findReceiverPublicKey(rpc, receiverAddress, pageSize) {
+async function findReceiverPublicKey(
+  rpc: SageRpc,
+  receiverAddress: string,
+  pageSize: number,
+): Promise<{
+  publicKey: PublicKeyType;
+  derivation: { hardened: boolean; index: number; address: string };
+}> {
   for (const hardened of [false, true]) {
     let offset = 0;
     while (true) {
-      const response = await rpc.call("get_derivations", {
-        hardened,
-        offset,
-        limit: pageSize,
-      });
+      const response = await rpc.call<GetDerivationsResponse>(
+        "get_derivations",
+        {
+          hardened,
+          offset,
+          limit: pageSize,
+        },
+      );
       const match = response.derivations.find(
         (derivation) => derivation.address === receiverAddress,
       );
@@ -381,7 +481,10 @@ async function findReceiverPublicKey(rpc, receiverAddress, pageSize) {
   );
 }
 
-function parseReceiverPublicKey(value, receiverPuzzleHash) {
+function parseReceiverPublicKey(
+  value: string,
+  receiverPuzzleHash: Uint8Array,
+): PublicKeyType {
   const hex = value.replace(/^0x/i, "");
   if (!/^[0-9a-fA-F]{96}$/.test(hex)) {
     throw new Error("--receiver-public-key must be a 48-byte public key");
@@ -397,16 +500,17 @@ function parseReceiverPublicKey(value, receiverPuzzleHash) {
 }
 
 function buildUnsignedCoinSpends(
-  clawback,
-  records,
-  receiverPublicKey,
-  destination,
-  fee,
-) {
-  const total = records.reduce(
-    (sum, record) => sum + record.coin.amount,
-    0n,
-  );
+  clawback: ClawbackV2,
+  records: CoinRecord[],
+  receiverPublicKey: PublicKeyType,
+  destination: Address,
+  fee: bigint,
+): {
+  coinSpends: ReturnType<typeof coinSpendJson>[];
+  inputAmount: bigint;
+  outputAmount: bigint;
+} {
+  const total = records.reduce((sum, record) => sum + record.coin.amount, 0n);
   if (fee >= total) {
     throw new Error(`Fee ${fee} must be less than recovered amount ${total}`);
   }
@@ -470,8 +574,8 @@ try {
   );
   const rpc = new SageRpc(options);
 
-  let receiverPublicKey;
-  let derivation = null;
+  let receiverPublicKey: PublicKeyType;
+  let derivation: RecoveryResult["receiverDerivation"] = null;
   if (options.receiverPublicKey) {
     receiverPublicKey = parseReceiverPublicKey(
       options.receiverPublicKey,
@@ -499,7 +603,7 @@ try {
     destination,
     options.fee,
   );
-  const result = {
+  const result: RecoveryResult = {
     clawbackAddress: clawbackAddress.encode(),
     receiverAddress,
     receiverDerivation: derivation,
@@ -518,11 +622,14 @@ try {
     result.preview = await rpc.call("view_coin_spends", {
       coin_spends: unsigned.coinSpends,
     });
-    const signed = await rpc.call("sign_coin_spends", {
-      coin_spends: unsigned.coinSpends,
-      auto_submit: false,
-      partial: false,
-    });
+    const signed = await rpc.call<SignedCoinSpendsResponse>(
+      "sign_coin_spends",
+      {
+        coin_spends: unsigned.coinSpends,
+        auto_submit: false,
+        partial: false,
+      },
+    );
     result.spendBundle = signed.spend_bundle;
 
     if (options.submit) {

@@ -8,8 +8,13 @@ import {
   fromHex,
   toHex,
 } from "chia-wallet-sdk";
+import type { CreateCoin, RpcClient as RpcClientType } from "chia-wallet-sdk";
 
 const MAX_BLOCK_COST = 11_000_000_000n;
+
+interface InspectOptions {
+  coinId: string;
+}
 
 const program = new Command()
   .name("inspect-clawback-v2")
@@ -17,9 +22,9 @@ const program = new Command()
   .requiredOption("-c, --coin-id <coinId>", "Coin ID to inspect")
   .parse();
 
-const options = program.opts();
+const options = program.opts<InspectOptions>();
 
-function normalizeCoinId(value) {
+function normalizeCoinId(value: string): string {
   const hex = value.replace(/^0x/i, "").toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(hex)) {
     throw new Error(`Invalid coin ID: ${value}`);
@@ -27,18 +32,24 @@ function normalizeCoinId(value) {
   return hex;
 }
 
-function requireResult(response, label, property) {
-  if (!response.success || !response[property]) {
-    throw new Error(`${label} failed: ${response.error ?? "no result returned"}`);
+function requireResult<
+  R extends { success: boolean; error: string | null },
+  K extends keyof R,
+>(response: R, label: string, property: K): NonNullable<R[K]> {
+  const value = response[property];
+  if (!response.success || value === null || value === undefined) {
+    throw new Error(
+      `${label} failed: ${response.error ?? "no result returned"}`,
+    );
   }
-  return response[property];
+  return value as NonNullable<R[K]>;
 }
 
-function isoTime(timestamp) {
+function isoTime(timestamp: bigint): string {
   return new Date(Number(timestamp) * 1_000).toISOString();
 }
 
-function formatXch(mojos) {
+function formatXch(mojos: bigint): string {
   const whole = mojos / 1_000_000_000_000n;
   const fraction = (mojos % 1_000_000_000_000n)
     .toString()
@@ -47,7 +58,10 @@ function formatXch(mojos) {
   return fraction ? `${whole}.${fraction} XCH` : `${whole} XCH`;
 }
 
-async function blockTimestamp(client, height) {
+async function blockTimestamp(
+  client: RpcClientType,
+  height: number,
+): Promise<bigint> {
   const response = await client.getBlockRecordByHeight(height);
   const record = requireResult(response, `block ${height}`, "blockRecord");
   if (record.timestamp === null) {
@@ -56,20 +70,23 @@ async function blockTimestamp(client, height) {
   return record.timestamp;
 }
 
-function parseClawback(createCoin, expectedPuzzleHash) {
+function parseClawback(
+  createCoin: CreateCoin,
+  expectedPuzzleHash: Uint8Array,
+): { clawback: ClawbackV2; hinted: boolean } | null {
   const memos = createCoin.memos?.toList();
   if (!memos || memos.length < 2) {
     return null;
   }
 
-  const receiverPuzzleHash = memos[0].toAtom();
+  const receiverPuzzleHash = memos[0]!.toAtom();
   if (!receiverPuzzleHash || receiverPuzzleHash.length !== 32) {
     return null;
   }
 
   for (const hinted of [false, true]) {
     const clawback = ClawbackV2.fromMemo(
-      memos[1],
+      memos[1]!,
       receiverPuzzleHash,
       createCoin.amount,
       hinted,
@@ -83,7 +100,7 @@ function parseClawback(createCoin, expectedPuzzleHash) {
   return null;
 }
 
-async function inspectCoin(coinIdHex) {
+async function inspectCoin(coinIdHex: string): Promise<object> {
   const client = RpcClient.mainnet();
   const networkResponse = await client.getNetworkInfo();
   if (!networkResponse.success || networkResponse.networkName !== "mainnet") {
@@ -135,7 +152,7 @@ async function inspectCoin(coinIdHex) {
     );
   }
 
-  const parsed = parseClawback(matchingCreateCoins[0], coin.puzzleHash);
+  const parsed = parseClawback(matchingCreateCoins[0]!, coin.puzzleHash);
   if (!parsed) {
     return {
       network: networkResponse.networkName,
@@ -159,7 +176,9 @@ async function inspectCoin(coinIdHex) {
     state = {
       status: "unspent",
       spendablePath:
-        now < expiresAt ? "sender (before expiration)" : "receiver (after expiration)",
+        now < expiresAt
+          ? "sender (before expiration)"
+          : "receiver (after expiration)",
       expired: now >= expiresAt,
     };
   } else {
@@ -193,7 +212,9 @@ async function inspectCoin(coinIdHex) {
       spentAt: spentAt.toString(),
       spentAtIso: isoTime(spentAt),
       spentAfterExpiration: spentAt >= expiresAt,
-      spendType: wasPushedThrough ? "push-through to receiver" : "sender or receiver spend",
+      spendType: wasPushedThrough
+        ? "push-through to receiver"
+        : "sender or receiver spend",
       children: children.map((child) => ({
         coinId: `0x${toHex(child.coin.coinId())}`,
         puzzleHash: `0x${toHex(child.coin.puzzleHash)}`,
