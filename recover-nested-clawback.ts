@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import { homedir, platform } from "node:os";
 import { resolve } from "node:path";
 import https from "node:https";
 
@@ -15,6 +14,8 @@ import {
   standardPuzzleHash,
   toHex,
 } from "chia-wallet-sdk";
+import xdgAppPathsModule from "xdg-app-paths";
+import type { XDGAppPaths } from "xdg-app-paths";
 import type {
   CoinRecord,
   CoinSpend,
@@ -22,25 +23,10 @@ import type {
   RpcClient as RpcClientType,
 } from "chia-wallet-sdk";
 
+const xdgAppPaths = xdgAppPathsModule as unknown as XDGAppPaths;
+
 function defaultSageDataDirectory(): string {
-  if (platform() === "darwin") {
-    return resolve(
-      homedir(),
-      "Library/Application Support/com.rigidnetwork.sage",
-    );
-  }
-
-  if (platform() === "win32") {
-    return resolve(
-      process.env.APPDATA ?? resolve(homedir(), "AppData/Roaming"),
-      "com.rigidnetwork.sage",
-    );
-  }
-
-  return resolve(
-    process.env.XDG_DATA_HOME ?? resolve(homedir(), ".local/share"),
-    "com.rigidnetwork.sage",
-  );
+  return resolve(xdgAppPaths.data(false), "com.rigidnetwork.sage");
 }
 
 const DEFAULT_RPC_DIRECTORY = defaultSageDataDirectory();

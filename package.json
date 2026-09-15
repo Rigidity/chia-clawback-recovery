@@ -16,7 +16,8 @@
   },
   "dependencies": {
     "chia-wallet-sdk": "^0.36.0",
-    "commander": "^15.0.0"
+    "commander": "^15.0.0",
+    "xdg-app-paths": "^8.3.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
