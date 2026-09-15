@@ -1,0 +1,4 @@
+node_modules/
+recovery-transaction.json
+*.log
+.DS_Store
