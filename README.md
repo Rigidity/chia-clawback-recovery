@@ -1,7 +1,7 @@
 # Chia Clawback Recovery
 
-Command-line tools for inspecting Chia Clawback V2 coins and recovering XCH
-sent to a clawback wrapper address.
+A command-line tool for recovering XCH sent to a Chia Clawback V2 wrapper
+address.
 
 The recovery tool discovers the wrapper from its on-chain history, constructs
 receiver-path spends with `chia-wallet-sdk`, and asks a running Sage wallet to
@@ -18,14 +18,6 @@ Install dependencies:
 ```sh
 npm install
 ```
-
-## Inspect a coin
-
-```sh
-npm run inspect -- --coin-id 0xYOUR_COIN_ID
-```
-
-This uses the public mainnet Coinset service.
 
 ## Recover coins from a clawback address
 

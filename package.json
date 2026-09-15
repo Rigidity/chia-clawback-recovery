@@ -1,7 +1,7 @@
 {
   "name": "chia-clawback-recovery",
   "version": "1.0.0",
-  "description": "Inspect and recover Chia Clawback V2 coins",
+  "description": "Recover Chia Clawback V2 coins",
   "private": true,
   "license": "MIT",
   "engines": {
@@ -9,7 +9,6 @@
   },
   "type": "module",
   "scripts": {
-    "inspect": "tsx inspect-clawback-v2.ts",
     "lint": "eslint .",
     "prettier:check": "prettier --check .",
     "recover": "tsx recover-nested-clawback.ts",
