@@ -1,13 +1,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import https from "node:https";
 
 import { Command, InvalidArgumentError } from "commander";
-
-const require = createRequire(import.meta.url);
-const {
+import {
   Address,
   ClawbackV2,
   Clvm,
@@ -18,7 +15,7 @@ const {
   fromHex,
   standardPuzzleHash,
   toHex,
-} = require("chia-wallet-sdk");
+} from "chia-wallet-sdk";
 
 const DEFAULT_RPC_DIRECTORY = resolve(
   homedir(),

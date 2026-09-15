@@ -1,9 +1,5 @@
-import { createRequire } from "node:module";
-
 import { Command } from "commander";
-
-const require = createRequire(import.meta.url);
-const {
+import {
   Address,
   ClawbackV2,
   Clvm,
@@ -11,7 +7,7 @@ const {
   bytesEqual,
   fromHex,
   toHex,
-} = require("chia-wallet-sdk");
+} from "chia-wallet-sdk";
 
 const MAX_BLOCK_COST = 11_000_000_000n;
 
