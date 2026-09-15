@@ -15,7 +15,6 @@ const program = new Command()
   .name("inspect-clawback-v2")
   .description("Inspect a potential Clawback V2 coin through Coinset.")
   .requiredOption("-c, --coin-id <coinId>", "Coin ID to inspect")
-  .option("--coinset-url <url>", "Coinset-compatible full node URL")
   .parse();
 
 const options = program.opts();
@@ -84,7 +83,8 @@ function parseClawback(createCoin, expectedPuzzleHash) {
   return null;
 }
 
-async function inspectCoin(coinIdHex, client) {
+async function inspectCoin(coinIdHex) {
+  const client = RpcClient.mainnet();
   const networkResponse = await client.getNetworkInfo();
   if (!networkResponse.success || networkResponse.networkName !== "mainnet") {
     throw new Error(
@@ -206,7 +206,6 @@ async function inspectCoin(coinIdHex, client) {
 
   return {
     network: networkResponse.networkName,
-    coinsetUrl: client.baseUrl(),
     coinId: `0x${coinIdHex}`,
     isClawbackV2: true,
     coin: {
@@ -235,10 +234,7 @@ async function inspectCoin(coinIdHex, client) {
 
 try {
   const coinId = normalizeCoinId(options.coinId);
-  const client = options.coinsetUrl
-    ? new RpcClient(options.coinsetUrl)
-    : RpcClient.mainnet();
-  const result = await inspectCoin(coinId, client);
+  const result = await inspectCoin(coinId);
   console.log(JSON.stringify(result, null, 2));
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);

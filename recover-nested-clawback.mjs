@@ -75,7 +75,6 @@ const program = new Command()
     "Only recover specific coin IDs at the clawback address",
     (value, previous = []) => [...previous, normalizeCoinId(value)],
   )
-  .option("--coinset-url <url>", "Coinset-compatible full node URL")
   .option("--rpc-url <url>", "Sage RPC base URL", "https://127.0.0.1:9257")
   .option(
     "--rpc-cert <path>",
@@ -451,9 +450,7 @@ try {
     options.clawbackAddress,
     "Clawback address",
   );
-  const coinset = options.coinsetUrl
-    ? new RpcClient(options.coinsetUrl)
-    : RpcClient.mainnet();
+  const coinset = RpcClient.mainnet();
   const { clawback, records } = await discoverCoins(
     coinset,
     clawbackAddress,

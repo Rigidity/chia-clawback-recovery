@@ -25,8 +25,7 @@ npm install
 npm run inspect -- --coin-id 0xYOUR_COIN_ID
 ```
 
-This uses the public mainnet Coinset service by default. Use
-`--coinset-url URL` to select another compatible endpoint.
+This uses the public mainnet Coinset service.
 
 ## Recover coins from a clawback address
 
@@ -53,8 +52,8 @@ If `--destination` is omitted, the tool sends the recovered amount to the
 clawback's receiver custody address. If `--coin-id` is omitted, it spends every
 unspent coin at the wrapper address.
 
-Run `npm run recover -- --help` for RPC host, certificate, key, Coinset, coin
-selection, and offline build options.
+Run `npm run recover -- --help` for RPC host, certificate, key, coin selection,
+and offline build options.
 
 ## Safety
 
