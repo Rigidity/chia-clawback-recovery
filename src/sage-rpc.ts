@@ -107,7 +107,7 @@ export class SageRpc {
   ): Promise<T> {
     const tls = await this.loadTls();
     const payload = JSON.stringify(body);
-    const url = new URL(endpoint.replace(/^\//, ""), `${this.baseUrl}/`);
+    const url = new URL(endpoint.replace(/^\/+/, ""), this.baseUrl);
 
     return new Promise<T>((resolvePromise, rejectPromise) => {
       const request = https.request(
