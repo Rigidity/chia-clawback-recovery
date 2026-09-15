@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, platform } from "node:os";
 import { resolve } from "node:path";
 import https from "node:https";
 
@@ -22,10 +22,28 @@ import type {
   RpcClient as RpcClientType,
 } from "chia-wallet-sdk";
 
-const DEFAULT_RPC_DIRECTORY = resolve(
-  homedir(),
-  "Library/Application Support/com.rigidnetwork.sage",
-);
+function defaultSageDataDirectory(): string {
+  if (platform() === "darwin") {
+    return resolve(
+      homedir(),
+      "Library/Application Support/com.rigidnetwork.sage",
+    );
+  }
+
+  if (platform() === "win32") {
+    return resolve(
+      process.env.APPDATA ?? resolve(homedir(), "AppData/Roaming"),
+      "com.rigidnetwork.sage",
+    );
+  }
+
+  return resolve(
+    process.env.XDG_DATA_HOME ?? resolve(homedir(), ".local/share"),
+    "com.rigidnetwork.sage",
+  );
+}
+
+const DEFAULT_RPC_DIRECTORY = defaultSageDataDirectory();
 const MAX_BLOCK_COST = 11_000_000_000n;
 
 interface RecoveryOptions {

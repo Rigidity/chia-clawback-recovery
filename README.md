@@ -37,6 +37,10 @@ unspent coin at the wrapper address.
 Run `npm run recover -- --help` for RPC host, certificate, key, and coin
 selection options.
 
+By default, the RPC certificate and key are read from Sage's standard
+application data directory for macOS, Windows, or Linux. Use `--rpc-cert` and
+`--rpc-key` if Sage stores them elsewhere.
+
 ## Safety
 
 - Running the recovery command signs and submits the transaction immediately.
