@@ -191,11 +191,7 @@ export function buildUnsignedCoinSpends(
     const conditions =
       index === 0
         ? [
-            clvm.createCoin(
-              destination.puzzleHash,
-              outputAmount,
-              clvm.list([clvm.atom(destination.puzzleHash)]),
-            ),
+            clvm.createCoin(destination.puzzleHash, outputAmount),
             ...(fee > 0n ? [clvm.reserveFee(fee)] : []),
           ]
         : [];
